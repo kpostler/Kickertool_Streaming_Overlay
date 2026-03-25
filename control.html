@@ -1,0 +1,474 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Overlay-Steuerung</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 24px;
+      background: #1f1f1f;
+      color: white;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    .panel {
+      background: #2a2a2a;
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 24px;
+      box-sizing: border-box;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    button, a.button-link {
+      font-size: 18px;
+      padding: 12px 18px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+
+    .primary { background: #4a90e2; }
+    .secondary { background: #666; }
+    .success { background: #2f8f46; }
+    .danger { background: #a33a3a; }
+    .warning { background: #b27a1a; }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #555;
+      background: #111;
+      color: #f0f0f0;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+
+    .muted {
+      color: #c8c8c8;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    .small {
+      font-size: 14px;
+      color: #bdbdbd;
+      margin-top: 8px;
+    }
+
+    .status-line {
+      font-size: 18px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+
+    #timer {
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 360px;
+      box-sizing: border-box;
+      font-family: Consolas, monospace;
+      font-size: 15px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px solid #555;
+      resize: vertical;
+      background: #111;
+      color: #f0f0f0;
+      margin-top: 10px;
+    }
+
+    code {
+      background: #111;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    .candidate-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .candidate-item {
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .candidate-meta {
+      font-size: 13px;
+      color: #bdbdbd;
+      margin-bottom: 6px;
+    }
+
+    .candidate-main {
+      font-size: 16px;
+      line-height: 1.4;
+      margin-bottom: 10px;
+      word-break: break-word;
+    }
+
+    .active-override {
+      color: #8fd18f;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Overlay-Steuerung</h1>
+
+  <div class="panel">
+    <h2>Turnier auswählen</h2>
+
+    <label for="tournamentInput">Turnier-URL oder Tournament-ID</label>
+    <input
+      id="tournamentInput"
+      placeholder="z. B. tio:Lo0yC6ACT2k9a oder https://live.kickertool3.de/..."
+    />
+
+    <div class="button-row">
+      <button class="primary" onclick="setTournament()">Turnier übernehmen</button>
+      <button class="secondary" onclick="loadConfig()">Aktuelles Turnier neu laden</button>
+    </div>
+
+    <div id="currentTournament" class="status-line">Noch kein Turnier geladen</div>
+    <div id="currentApiUrl" class="small"></div>
+
+    <div class="muted">
+      Akzeptiert:
+      <br>• nur <code>tio:...</code>
+      <br>• API-URL
+      <br>• Live-/Kickertool-URL
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Spieler-Seiten</h2>
+
+    <div class="button-row">
+      <button class="primary" onclick="toggleSwap()">Seiten tauschen</button>
+      <button class="secondary" onclick="setNormal()">Normal</button>
+      <button class="secondary" onclick="setSwapped()">Getauscht</button>
+    </div>
+
+    <div id="swapState" class="status-line">Lade Zustand…</div>
+    <div class="small">
+      Diese Einstellung vertauscht links/rechts im OBS-Overlay.
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Stream-Timer</h2>
+
+    <div id="timer">0:00:00</div>
+
+    <div class="button-row">
+      <button class="success" onclick="startTimer()">Timer starten</button>
+      <button class="warning" onclick="stopTimer()">Timer stoppen</button>
+      <button class="danger" onclick="resetTimer()">Timer zurücksetzen</button>
+    </div>
+
+    <div class="small">
+      Der Timer wird pro Tournament-ID gespeichert und nach einem Proxy-Neustart wieder geladen.
+    </div>
+  </div>
+
+
+  <div class="panel">
+    <h2>Manuelle Stream-Auswahl</h2>
+
+    <div class="muted">
+      Falls Kickertool bei laufenden Spielen keinen Court mitliefert, kannst du hier das richtige Match für das Overlay manuell erzwingen.
+    </div>
+
+    <div id="overrideState" class="status-line">Kein manueller Override aktiv</div>
+
+    <div class="button-row">
+      <button class="secondary" onclick="loadLiveCandidates()">Laufende Matches aktualisieren</button>
+      <button class="danger" onclick="clearOverride()">Override löschen</button>
+    </div>
+
+    <div id="liveCandidates" class="candidate-list"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Tisch 1 – Liste für YouTube</h2>
+
+    <textarea id="historyBox" placeholder="Lade Matchliste…"></textarea>
+
+    <div class="button-row">
+      <button class="success" onclick="copyHistory()">Liste kopieren</button>
+      <button class="secondary" onclick="loadHistory()">Aktualisieren</button>
+      <button class="danger" onclick="resetHistory()">History zurücksetzen</button>
+      <a class="button-link primary" href="http://127.0.0.1:5000/history/export" target="_blank">History exportieren</a>
+    </div>
+
+    <div class="muted">
+      Die Liste wird automatisch mitgeschrieben, sobald das Match auf dem Streaming-Tisch als <code>Live</code> erkannt wird.
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:5000";
+
+    const ENDPOINTS = {
+      config: `${API_BASE}/config`,
+      setTournament: `${API_BASE}/config/tournament`,
+      state: `${API_BASE}/state`,
+      toggleSwap: `${API_BASE}/toggle_swap`,
+      setSwapFalse: `${API_BASE}/set_swap/false`,
+      setSwapTrue: `${API_BASE}/set_swap/true`,
+      timerStart: `${API_BASE}/timer/start`,
+      timerStop: `${API_BASE}/timer/stop`,
+      timerReset: `${API_BASE}/timer/reset`,
+      historyText: `${API_BASE}/history_text`,
+      historyReset: `${API_BASE}/history/reset`,
+      liveCandidates: `${API_BASE}/live_candidates`,
+      streamOverride: `${API_BASE}/stream_override`,
+      clearOverride: `${API_BASE}/stream_override/clear`,
+    };
+
+    function formatElapsed(secondsTotal) {
+      secondsTotal = Math.max(0, parseInt(secondsTotal || 0, 10));
+      const h = Math.floor(secondsTotal / 3600);
+      const m = Math.floor((secondsTotal % 3600) / 60);
+      const s = secondsTotal % 60;
+      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+
+    async function loadConfig() {
+      try {
+        const res = await fetch(ENDPOINTS.config, { cache: "no-store" });
+        const data = await res.json();
+
+        document.getElementById("currentTournament").textContent =
+          data.tournament_id
+            ? `Aktives Turnier: ${data.tournament_id}`
+            : "Kein Turnier gesetzt";
+
+        document.getElementById("currentApiUrl").textContent =
+          data.api_url ? data.api_url : "";
+
+        if (data.tournament_id) {
+          document.getElementById("tournamentInput").value = data.tournament_id;
+        }
+
+        updateOverrideState(data.stream_override_match_id || null);
+      } catch (err) {
+        document.getElementById("currentTournament").textContent =
+          "Turnier konnte nicht geladen werden";
+        document.getElementById("currentApiUrl").textContent = "";
+      }
+    }
+
+    async function setTournament() {
+      const value = document.getElementById("tournamentInput").value.trim();
+
+      try {
+        const res = await fetch(ENDPOINTS.setTournament, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          alert(data.error || "Turnier konnte nicht gesetzt werden.");
+          return;
+        }
+
+        await loadConfig();
+        await refreshState();
+        await loadHistory();
+      } catch (err) {
+        alert("Fehler beim Setzen des Turniers.");
+      }
+    }
+
+    async function refreshState() {
+      try {
+        const res = await fetch(ENDPOINTS.state, { cache: "no-store" });
+        const data = await res.json();
+
+        document.getElementById("swapState").textContent =
+          data.swapped
+            ? "Status: Seiten sind GETAUSCHT"
+            : "Status: Seiten sind NORMAL";
+
+        document.getElementById("timer").textContent =
+          formatElapsed(data.elapsed_seconds || 0) + (data.timer_running ? "  ●" : "");
+      } catch (err) {
+        document.getElementById("swapState").textContent =
+          "Status konnte nicht geladen werden";
+      }
+    }
+
+    async function toggleSwap() {
+      await fetch(ENDPOINTS.toggleSwap, { method: "POST" });
+      await refreshState();
+    }
+
+    async function setNormal() {
+      await fetch(ENDPOINTS.setSwapFalse, { method: "POST" });
+      await refreshState();
+    }
+
+    async function setSwapped() {
+      await fetch(ENDPOINTS.setSwapTrue, { method: "POST" });
+      await refreshState();
+    }
+
+    async function startTimer() {
+      await fetch(ENDPOINTS.timerStart, { method: "POST" });
+      await refreshState();
+    }
+
+    async function stopTimer() {
+      await fetch(ENDPOINTS.timerStop, { method: "POST" });
+      await refreshState();
+    }
+
+    async function resetTimer() {
+      await fetch(ENDPOINTS.timerReset, { method: "POST" });
+      await refreshState();
+    }
+
+    async function loadHistory() {
+      try {
+        const res = await fetch(ENDPOINTS.historyText, { cache: "no-store" });
+        const text = await res.text();
+        document.getElementById("historyBox").value = text;
+      } catch (err) {
+        document.getElementById("historyBox").value =
+          "Fehler beim Laden der Liste.";
+      }
+    }
+
+    async function copyHistory() {
+      const box = document.getElementById("historyBox");
+      box.select();
+      box.setSelectionRange(0, 999999);
+
+      try {
+        await navigator.clipboard.writeText(box.value);
+      } catch (err) {
+        document.execCommand("copy");
+      }
+    }
+
+    async function resetHistory() {
+      await fetch(ENDPOINTS.historyReset, { method: "POST" });
+      await loadHistory();
+    }
+
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function updateOverrideState(matchId) {
+      document.getElementById("overrideState").textContent =
+        matchId ? `Manueller Override aktiv: ${matchId}` : "Kein manueller Override aktiv";
+    }
+
+    async function setOverride(matchId) {
+      await fetch(ENDPOINTS.streamOverride, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ match_id: matchId }),
+      });
+      await loadConfig();
+      await loadLiveCandidates();
+    }
+
+    async function clearOverride() {
+      await fetch(ENDPOINTS.clearOverride, { method: "POST" });
+      await loadConfig();
+      await loadLiveCandidates();
+    }
+
+    async function loadLiveCandidates() {
+      const box = document.getElementById("liveCandidates");
+      try {
+        const res = await fetch(ENDPOINTS.liveCandidates, { cache: "no-store" });
+        const data = await res.json();
+        updateOverrideState(data.override_match_id || null);
+
+        if (!data.items || !data.items.length) {
+          box.innerHTML = '<div class="candidate-item"><div class="candidate-main">Keine laufenden oder kommenden Matches gefunden.</div></div>';
+          return;
+        }
+
+        box.innerHTML = data.items.map(item => {
+          const state = escapeHtml(item.display_state || "");
+          const round = escapeHtml(item.round_label || "Aktuelle Runde");
+          const teams = `${escapeHtml(item.team_a || "—")} vs. ${escapeHtml(item.team_b || "—")}`;
+          const courts = item.court_labels && item.court_labels.length
+            ? escapeHtml(item.court_labels.join(", "))
+            : 'Kein Court in API';
+          const active = item.is_override ? '<div class="active-override">Aktuell erzwungen</div>' : '';
+          return `
+            <div class="candidate-item">
+              <div class="candidate-meta">${round} · ${state} · ${courts}</div>
+              <div class="candidate-main">${teams}</div>
+              <div class="button-row">
+                <button class="primary" onclick="setOverride('${escapeHtml(item.match_id)}')">Für Overlay wählen</button>
+              </div>
+              ${active}
+            </div>
+          `;
+        }).join("");
+      } catch (err) {
+        box.innerHTML = '<div class="candidate-item"><div class="candidate-main">Fehler beim Laden der laufenden Matches.</div></div>';
+      }
+    }
+
+    async function init() {
+      await loadConfig();
+      await refreshState();
+      await loadHistory();
+      await loadLiveCandidates();
+    }
+
+    init();
+    setInterval(refreshState, 1000);
+    setInterval(loadHistory, 3000);
+    setInterval(loadLiveCandidates, 3000);
+  </script>
+</body>
+</html>

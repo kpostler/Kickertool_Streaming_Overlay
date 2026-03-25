@@ -1,0 +1,243 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Standings Mini</title>
+  <style>
+    :root {
+      --red: #c61f26;
+      --gold: #c9a227;
+      --green: #0f6a4a;
+      --panel: rgba(18, 18, 20, 0.84);
+      --text: #f5f5f5;
+      --text-soft: rgba(245, 245, 245, 0.82);
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      color: var(--text);
+    }
+
+    .panel {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 430px;
+      background: var(--panel);
+      border: 2px solid var(--gold);
+      border-radius: 20px;
+      box-shadow: 0 10px 28px var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(6px);
+    }
+
+    .top-accent {
+      height: 5px;
+      background: linear-gradient(90deg, var(--red) 0, var(--gold) 75%, var(--green) 100%);
+    }
+
+    .header {
+      padding: 14px 18px 12px 18px;
+      text-align: center;
+    }
+
+    .title {
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-soft);
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      font-size: 24px;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.1;
+    }
+
+    .rows {
+      padding: 4px 14px 12px 14px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 50px 1fr 60px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 10px;
+      border-radius: 12px;
+      margin-bottom: 6px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .rank {
+      font-size: 22px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .name {
+      font-size: 19px;
+      font-weight: 700;
+      line-height: 1.15;
+      word-break: break-word;
+    }
+
+    .points {
+      font-size: 22px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .footer {
+      padding: 8px 14px 12px 14px;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.58);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <div class="top-accent"></div>
+    <div class="header">
+      <div class="title">Vorrunde</div>
+      <div class="subtitle">Aktueller Stand</div>
+    </div>
+    <div id="rows" class="rows">
+      <div class="row">
+        <div class="rank">-</div>
+        <div class="name">Lade Rangliste…</div>
+        <div class="points">-</div>
+      </div>
+    </div>
+    <div id="footer" class="footer">Initialisierung…</div>
+  </div>
+
+  <script>
+    const DATA_URL = "http://127.0.0.1:5000/data";
+    const REFRESH_MS = 5000;
+    const MAX_ROWS = 5;
+
+    function buildMap(items) {
+      const map = new Map();
+      for (const item of items || []) {
+        map.set(item._id, item);
+      }
+      return map;
+    }
+
+    function playerLabel(entry) {
+      if (!entry) return "—";
+      if (entry.type === "player") {
+        return [entry.firstName, entry.lastName].filter(Boolean).join(" ").trim() || entry._id;
+      }
+      if (entry.type === "player_name") {
+        return entry.name || entry._id;
+      }
+      return entry.name || entry._id || "—";
+    }
+
+    function resolveStandingName(standing, entryMap) {
+      const entry = entryMap.get(standing.entryId);
+      if (!entry) return standing.entryId || "—";
+
+      if (entry.type === "team" && Array.isArray(entry.players)) {
+        return entry.players.map(pid => playerLabel(entryMap.get(pid))).join(" / ");
+      }
+
+      return playerLabel(entry);
+    }
+
+    function getPreliminaryStage(data) {
+      const stages = data.stages || [];
+      return (
+        stages.find(s => (s.name || "").toLowerCase().includes("preliminary")) ||
+        stages.find(s => (s.name || "").toLowerCase().includes("vorrunde")) ||
+        stages.find(s => (s.tournamentMode || "").toLowerCase() === "monster_dyp") ||
+        null
+      );
+    }
+
+    function getPreliminaryGroup(data, stageId) {
+      return (data.groups || []).find(g => g.stageId === stageId) || null;
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function renderRows(rows) {
+      const container = document.getElementById("rows");
+
+      if (!rows.length) {
+        container.innerHTML = `
+          <div class="row">
+            <div class="rank">-</div>
+            <div class="name">Keine Vorrunden-Rangliste gefunden</div>
+            <div class="points">-</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = rows.map(row => `
+        <div class="row">
+          <div class="rank">${row.rank ?? "—"}</div>
+          <div class="name">${escapeHtml(row.name)}</div>
+          <div class="points">${row.points ?? "—"}</div>
+        </div>
+      `).join("");
+    }
+
+    async function updateMiniStandings() {
+      try {
+        const res = await fetch(DATA_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+        const entryMap = buildMap(data.entries);
+        const stage = getPreliminaryStage(data);
+        const group = stage ? getPreliminaryGroup(data, stage._id) : null;
+
+        const rows = (data.standings || [])
+          .filter(s => group && s.groupId === group._id)
+          .sort((a, b) => Number(a.rank ?? 9999) - Number(b.rank ?? 9999))
+          .slice(0, MAX_ROWS)
+          .map(s => ({ ...s, name: resolveStandingName(s, entryMap) }));
+
+        renderRows(rows);
+        document.getElementById("footer").textContent =
+          `Aktualisiert: ${new Date().toLocaleTimeString("de-DE")}`;
+      } catch (err) {
+        document.getElementById("rows").innerHTML = `
+          <div class="row">
+            <div class="rank">!</div>
+            <div class="name">Fehler beim Laden</div>
+            <div class="points">-</div>
+          </div>
+        `;
+        document.getElementById("footer").textContent = `Fehler: ${err.message}`;
+      }
+    }
+
+    updateMiniStandings();
+    setInterval(updateMiniStandings, REFRESH_MS);
+  </script>
+</body>
+</html>

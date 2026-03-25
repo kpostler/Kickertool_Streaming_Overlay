@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Match Overlay</title>
+  <style>
+    :root {
+      --red: #c61f26;
+      --gold: #c9a227;
+      --green: #0f6a4a;
+      --panel: rgba(18, 18, 20, 0.88);
+      --panel-soft: rgba(18, 18, 20, 0.78);
+      --text: #f5f5f5;
+      --shadow: rgba(0, 0, 0, 0.35);
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: transparent;
+      font-family: Arial, sans-serif;
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    body {
+      box-sizing: border-box;
+    }
+
+    .round-strip {
+      position: absolute;
+      left: -120px;
+      top: 50%;
+      transform: translateY(-50%) rotate(90deg);
+      background: linear-gradient(90deg, var(--red), #a3181e);
+      border: 4px solid var(--gold);
+      border-radius: 18px 18px 0 0;
+      padding: 12px 30px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      min-width: 260px;
+      text-align: center;
+      text-transform: uppercase;
+      box-shadow: 0 8px 20px var(--shadow);
+      box-sizing: border-box;
+    }
+
+    .top-panel {
+      position: absolute;
+      top: 0px;
+      right: 20px;
+
+      width: auto;              /* wichtig */
+      max-width: none;          /* wichtig */
+
+      background: var(--panel);
+      border: 2px solid var(--gold);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px var(--shadow);
+      padding: 14px 18px 16px 18px;
+      text-align: right;
+      box-sizing: border-box;
+    }
+
+    .top-accent {
+      height: 6px;
+      background: linear-gradient(90deg, var(--red), var(--gold), var(--green));
+      margin: -14px -18px 10px -18px;
+      border-radius: 16px 16px 8px 8px;
+    }
+
+    .tournament {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.12;
+      word-break: break-word;
+    }
+
+    .round-text {
+      margin-top: 6px;
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 1.15;
+      opacity: 0.95;
+    }
+
+    .team-box {
+      position: absolute;
+      bottom: 10px;
+      width: 360px;
+      min-height: 104px;
+      background: var(--panel);
+      border: 2px solid var(--gold);
+      border-radius: 18px;
+      box-shadow: 0 12px 30px var(--shadow);
+      padding: 14px 18px;
+      box-sizing: border-box;
+      display: none;
+    }
+
+    .team-left {
+      left: 20px;
+      text-align: left;
+    }
+
+    .team-right {
+      right: 20px;
+      text-align: right;
+    }
+
+    .team-name {
+      position: relative;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-size: 25px;
+      font-weight: 700;
+      line-height: 1.18;
+      box-sizing: border-box;
+      min-height: 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .team-right .team-name {
+      align-items: flex-end;
+    }
+
+    .team-left .team-name {
+      align-items: flex-start;
+    }
+
+    .player-line {
+      display: block;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .winner-label {
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--gold);
+      color: #111;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      display: none;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .winner .winner-label {
+      display: block;
+    }
+
+    .status-box {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 150px;
+      background: var(--panel-soft);
+      border: 2px solid var(--gold);
+      border-radius: 999px;
+      box-shadow: 0 10px 24px var(--shadow);
+      padding: 8px 18px;
+      text-align: center;
+      font-size: 18px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      box-sizing: border-box;
+      display: none;
+    }
+
+    .status-live {
+      background: rgba(198, 31, 38, 0.88);
+    }
+
+    .status-upcoming {
+      background: rgba(45, 45, 50, 0.88);
+    }
+
+    .status-result {
+      background: rgba(15, 106, 74, 0.88);
+    }
+
+    .status-bye {
+      background: rgba(70, 70, 70, 0.88);
+    }
+
+    .draw-box {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      margin-top: 0;
+      font-size: 18px;
+      color: var(--gold);
+      display: none;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    .show-draw {
+      display: block;
+    }
+
+    .mini-holder {
+      position: absolute;
+      right: 34px;
+      top: 170px;
+      width: 430px;
+      height: 540px;
+      display: none;
+    }
+
+    .mini-holder iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: transparent;
+    }
+
+    .location {
+      font-size: 30px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .tournament-small {
+      margin-top: 6px;
+      font-size: 18px;
+      font-weight: 500;
+      opacity: 0.9;
+    }
+  </style>
+</head>
+<body>
+  <div id="roundStrip" class="round-strip">Runde</div>
+
+  <div class="top-panel">
+    <div class="top-accent"></div>
+    <div class="location">Augsburger Kickerkiste</div>
+    <div id="tournament" class="tournament-small">Turnier</div>
+  </div>
+
+  <div id="teamBoxA" class="team-box team-left">
+    <div id="teamA" class="team-name">
+      <span class="winner-label">Winner</span>
+      <span id="teamAPlayer1" class="player-line">Spieler A1</span>
+      <span id="teamAPlayer2" class="player-line">Spieler A2</span>
+    </div>
+  </div>
+
+  <div id="teamBoxB" class="team-box team-right">
+    <div id="teamB" class="team-name">
+      <span class="winner-label">Winner</span>
+      <span id="teamBPlayer1" class="player-line">Spieler B1</span>
+      <span id="teamBPlayer2" class="player-line">Spieler B2</span>
+    </div>
+  </div>
+
+  <div id="statusBox" class="status-box">Status</div>
+  <div id="drawLabel" class="draw-box">Draw</div>
+
+  <div id="miniHolder" class="mini-holder">
+    <iframe id="miniFrame" src="standings_mini.html"></iframe>
+  </div>
+
+  <script>
+    const DISPLAY_URL = "http://127.0.0.1:5000/display_match/1";
+    const STATE_URL = "http://127.0.0.1:5000/state";
+    const REFRESH_MS = 2000;
+
+    function setText(id, value) {
+      document.getElementById(id).textContent = value ?? "—";
+    }
+
+    function splitTeam(teamText) {
+      if (!teamText) return ["—", ""];
+      const parts = teamText.split(" / ");
+      if (parts.length >= 2) {
+        return [parts[0] || "—", parts.slice(1).join(" / ") || ""];
+      }
+      return [teamText, ""];
+    }
+
+    function clearWinnerDraw() {
+      document.getElementById("teamA").classList.remove("winner");
+      document.getElementById("teamB").classList.remove("winner");
+      document.getElementById("drawLabel").classList.remove("show-draw");
+    }
+
+    function resetStatusClasses() {
+      const box = document.getElementById("statusBox");
+      box.classList.remove("status-live", "status-upcoming", "status-result", "status-bye");
+    }
+
+    function showMiniPanel(show, src = null) {
+      const holder = document.getElementById("miniHolder");
+      const frame = document.getElementById("miniFrame");
+      if (src && frame.getAttribute("src") !== src) {
+        frame.setAttribute("src", src);
+      }
+      holder.style.display = show ? "block" : "none";
+    }
+
+    async function updateOverlay() {
+      try {
+        const [displayRes, stateRes] = await Promise.all([
+          fetch(DISPLAY_URL, { cache: "no-store" }),
+          fetch(STATE_URL, { cache: "no-store" })
+        ]);
+
+        if (!displayRes.ok) {
+          throw new Error(`DISPLAY HTTP ${displayRes.status}`);
+        }
+
+        const display = await displayRes.json();
+        const state = stateRes.ok ? await stateRes.json() : { swapped: false };
+
+        setText("tournament", display.tournament_name || "Turnier");
+        setText("roundStrip", display.round_label || "Aktuelle Runde");
+
+
+        if (!display.found) {
+          document.getElementById("teamBoxA").style.display = "none";
+          document.getElementById("teamBoxB").style.display = "none";
+          document.getElementById("statusBox").style.display = "none";
+          clearWinnerDraw();
+          showMiniPanel(false);
+          return;
+        }
+
+        let teamA = display.team_a || "—";
+        let teamB = display.team_b || "—";
+
+        if (state.swapped) {
+          [teamA, teamB] = [teamB, teamA];
+        }
+
+        const [a1, a2] = splitTeam(teamA);
+        const [b1, b2] = splitTeam(teamB);
+
+        setText("teamAPlayer1", a1);
+        setText("teamAPlayer2", a2);
+        setText("teamBPlayer1", b1);
+        setText("teamBPlayer2", b2);
+
+        document.getElementById("teamBoxA").style.display = "block";
+        document.getElementById("teamBoxB").style.display = "block";
+        document.getElementById("statusBox").style.display = "block";
+
+        clearWinnerDraw();
+        resetStatusClasses();
+
+        let statusText = "Match";
+
+        const miniSrc = display.section_label === "KO Runde"
+          ? "bracket_mini.html"
+          : "standings_mini.html";
+
+        if (display.display_state === "live") {
+          statusText = "Live";
+          document.getElementById("statusBox").classList.add("status-live");
+          showMiniPanel(false);
+        } else if (display.display_state === "upcoming") {
+          statusText = "Upcoming";
+          document.getElementById("statusBox").classList.add("status-upcoming");
+          showMiniPanel(true, miniSrc);
+        } else if (display.display_state === "result") {
+          statusText = "Result";
+          document.getElementById("statusBox").classList.add("status-result");
+          showMiniPanel(true, miniSrc);
+
+          if (display.winner === 0) {
+            document.getElementById("teamA").classList.add("winner");
+          } else if (display.winner === 1) {
+            document.getElementById("teamB").classList.add("winner");
+          } else if (display.draw) {
+            document.getElementById("drawLabel").classList.add("show-draw");
+          }
+        } else if (display.display_state === "bye") {
+          statusText = "Bye";
+          document.getElementById("statusBox").classList.add("status-bye");
+          showMiniPanel(true, miniSrc);
+        } else {
+          statusText = "Unbekannt";
+          showMiniPanel(false);
+        }
+
+        setText("statusBox", statusText);
+      } catch (err) {
+        console.error(err);
+        document.getElementById("teamBoxA").style.display = "none";
+        document.getElementById("teamBoxB").style.display = "none";
+        document.getElementById("statusBox").style.display = "none";
+        clearWinnerDraw();
+        showMiniPanel(false);
+      }
+    }
+
+    updateOverlay();
+    setInterval(updateOverlay, REFRESH_MS);
+  </script>
+</body>
+</html>
