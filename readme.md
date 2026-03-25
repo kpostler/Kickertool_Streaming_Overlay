@@ -205,5 +205,9 @@ If you change the port in `proxy.py`, you must also update the URLs in OBS and y
 - Table 1 is not always correctly detected
 - After a match ends, the overlay may temporarily display a result from the wrong round or table
 
-##
 
+## License
+
+This project is licensed under the MIT License.
+
+You are free to use, modify and distribute this software.
