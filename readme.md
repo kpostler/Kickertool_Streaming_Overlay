@@ -84,7 +84,7 @@ git clone https://github.com/kpostler/Kickertool_Streaming_Overlay.git
 cd Kickertool_Streaming_Overlay
 ```
 
-
+---
 
 ### 2. Start the overlay
 
