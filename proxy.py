@@ -1,15 +1,31 @@
 
 from flask import Flask, jsonify, request, Response, send_file
 from flask_cors import CORS
+import os
 import requests
 import time
 import json
 import re
 from pathlib import Path
 from copy import deepcopy
+from threading import Lock
 
 STREAM_TABLE_NUMBER = 1
 API_TEMPLATE = "https://api.tournament.io/v1/table_soccer/result/tournaments/{tournament_id}"
+REQUEST_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "Kickertool-Streaming-Overlay/1.0",
+}
+
+try:
+    API_REQUEST_TIMEOUT_SECONDS = max(1.0, float(os.getenv("TOURNAMENT_API_TIMEOUT", "15")))
+except ValueError:
+    API_REQUEST_TIMEOUT_SECONDS = 15.0
+
+try:
+    API_POLL_INTERVAL_SECONDS = max(5, int(os.getenv("TOURNAMENT_API_POLL_INTERVAL", "15")))
+except ValueError:
+    API_POLL_INTERVAL_SECONDS = 15
 
 SAVE_DIR = Path("overlay_state")
 SAVE_DIR.mkdir(exist_ok=True)
@@ -32,6 +48,15 @@ history_index_by_match_id = {}
 table_slot_assignments = {}
 current_tournament_id = None
 stream_override = {"match_id": None}
+payload_cache_lock = Lock()
+payload_cache = {
+    "tournament_id": None,
+    "payload": None,
+    "last_attempt_monotonic": None,
+    "last_success_monotonic": None,
+    "last_error": "",
+    "served_stale": False,
+}
 
 
 def now_ts():
@@ -57,6 +82,48 @@ def extract_tournament_id(value: str):
         return value
     match = re.search(r"(tio:[A-Za-z0-9]+)", value)
     return match.group(1) if match else None
+
+
+def clear_payload_cache():
+    with payload_cache_lock:
+        payload_cache.update({
+            "tournament_id": None,
+            "payload": None,
+            "last_attempt_monotonic": None,
+            "last_success_monotonic": None,
+            "last_error": "",
+            "served_stale": False,
+        })
+
+
+def cached_payload_matches_current_tournament():
+    return (
+        payload_cache.get("payload") is not None
+        and payload_cache.get("tournament_id") == current_tournament_id
+    )
+
+
+def payload_cache_age_seconds():
+    last_success_monotonic = payload_cache.get("last_success_monotonic")
+    if last_success_monotonic is None:
+        return None
+    return max(0.0, time.monotonic() - float(last_success_monotonic))
+
+
+def payload_attempt_age_seconds():
+    last_attempt_monotonic = payload_cache.get("last_attempt_monotonic")
+    if last_attempt_monotonic is None:
+        return None
+    return max(0.0, time.monotonic() - float(last_attempt_monotonic))
+
+
+def is_payload_cache_fresh():
+    age_seconds = payload_attempt_age_seconds()
+    return (
+        cached_payload_matches_current_tournament()
+        and age_seconds is not None
+        and age_seconds < API_POLL_INTERVAL_SECONDS
+    )
 
 
 def format_elapsed(seconds_total):
@@ -242,6 +309,16 @@ def sort_live_candidates(matches):
     return sorted(matches, key=key)
 
 
+def has_table_slot_assignment(table_number):
+    for slot in table_slot_assignments.values():
+        try:
+            if int(slot) == int(table_number):
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def assign_live_slots(live_like):
     """
     Persist a stable mapping from live/upcoming match_id -> streaming table slot.
@@ -309,7 +386,7 @@ def select_display_match(payload, table_number=1):
         ]
         court_results = sorted(court_results, key=match_sort_key, reverse=False)
         if court_results:
-            latest_court_result = court_results[0]
+            latest_court_result = court_results[-1]
 
     latest_result_round_order = None
     if latest_court_result and latest_court_result.get("roundOrder") is not None:
@@ -376,6 +453,15 @@ def select_display_match(payload, table_number=1):
         for match in live_like:
             if table_slot_assignments.get(get_match_id(match)) == int(table_number):
                 return normalize_match(match, payload, table_number, "stable_live_slot")
+
+        if int(table_number) == STREAM_TABLE_NUMBER and (
+            table1_history
+            or has_table_slot_assignment(table_number)
+        ):
+            # Sobald Tisch 1 bereits einen Stream-Kontext hatte, darf kein anderes
+            # Rest-Match automatisch in den Streamslot nachruecken.
+            # Erst ein neu auf Slot 1 zugeordnetes Match schaltet wieder um.
+            live_like = []
 
         idx = max(0, int(table_number) - 1)
         if len(live_like) > idx:
@@ -502,6 +588,7 @@ def save_global_config():
 def switch_tournament(tournament_id):
     global current_tournament_id
     current_tournament_id = tournament_id
+    clear_payload_cache()
     save_global_config()
     load_state(tournament_id)
 
@@ -510,10 +597,63 @@ def get_current_api_url():
     return build_api_url(current_tournament_id)
 
 
-def fetch_payload():
-    r = requests.get(get_current_api_url(), timeout=15)
-    r.raise_for_status()
-    return r.json()
+def get_payload_cache_status():
+    with payload_cache_lock:
+        age_seconds = payload_cache_age_seconds()
+        return {
+            "has_data": cached_payload_matches_current_tournament(),
+            "age_seconds": None if age_seconds is None else int(age_seconds),
+            "served_stale": bool(payload_cache.get("served_stale")),
+            "last_error": payload_cache.get("last_error", ""),
+        }
+
+
+def fetch_payload(force=False):
+    # Browser-Seiten duerfen lokal haeufig pollen; der externe Tournament-API-Abruf
+    # wird zentral im Proxy gedrosselt und bei Fehlern kurzfristig aus dem Cache bedient.
+    with payload_cache_lock:
+        if not force and is_payload_cache_fresh():
+            return payload_cache["payload"]
+
+        cached_payload = payload_cache["payload"] if cached_payload_matches_current_tournament() else None
+        attempt_age_seconds = payload_attempt_age_seconds()
+
+        if (
+            not force
+            and cached_payload is None
+            and payload_cache.get("tournament_id") == current_tournament_id
+            and attempt_age_seconds is not None
+            and attempt_age_seconds < API_POLL_INTERVAL_SECONDS
+            and payload_cache.get("last_error")
+        ):
+            raise RuntimeError(payload_cache["last_error"])
+
+        try:
+            response = requests.get(
+                get_current_api_url(),
+                headers=REQUEST_HEADERS,
+                timeout=API_REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            payload_cache["tournament_id"] = current_tournament_id
+            payload_cache["last_attempt_monotonic"] = time.monotonic()
+            payload_cache["last_error"] = str(exc)
+            payload_cache["served_stale"] = cached_payload is not None
+            if cached_payload is not None:
+                return cached_payload
+            raise
+
+        payload_cache.update({
+            "tournament_id": current_tournament_id,
+            "payload": payload,
+            "last_attempt_monotonic": time.monotonic(),
+            "last_success_monotonic": time.monotonic(),
+            "last_error": "",
+            "served_stale": False,
+        })
+        return payload
 
 
 def register_stream_history(display_match):
@@ -575,9 +715,13 @@ def build_history_text():
 
 @app.route("/config", methods=["GET"])
 def get_config():
+    cache_status = get_payload_cache_status()
     return jsonify({
         "tournament_id": current_tournament_id,
         "api_url": get_current_api_url(),
+        "api_poll_interval_seconds": API_POLL_INTERVAL_SECONDS,
+        "api_request_timeout_seconds": API_REQUEST_TIMEOUT_SECONDS,
+        "payload_cache": cache_status,
     })
 
 
